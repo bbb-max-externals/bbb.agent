@@ -1,6 +1,25 @@
 import OpenAI from "openai";
 import { ConversationHistory } from "./history.js";
 
+interface ToolCallAccumulator {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+function accumulateToolCalls(
+  acc: Map<number, ToolCallAccumulator>,
+  deltas: Array<{ index: number; id?: string; function?: { name?: string; arguments?: string } }>
+) {
+  for (const d of deltas) {
+    const existing = acc.get(d.index) ?? { id: "", name: "", arguments: "" };
+    if (d.id) existing.id = d.id;
+    if (d.function?.name) existing.name += d.function.name;
+    if (d.function?.arguments) existing.arguments += d.function.arguments;
+    acc.set(d.index, existing);
+  }
+}
+
 interface ClientState {
   history: ConversationHistory;
   abortController: AbortController | null;
@@ -46,6 +65,7 @@ export async function handleChatRequest(
     history?: number;
     max_history?: number;
     context?: Record<string, unknown>;
+    tools?: Array<{ type: "function"; function: { name: string; description?: string; parameters?: Record<string, unknown> } }>;
   }
 ) {
   const openai = getOpenAI(ws);
@@ -80,18 +100,41 @@ export async function handleChatRequest(
           messages,
           temperature: msg.temperature ?? 0.7,
           stream: true,
+          ...(msg.tools && msg.tools.length > 0 ? { tools: msg.tools } : {}),
         },
         { signal: state.abortController.signal }
       );
 
       let fullText = "";
+      const toolCalls = new Map<number, ToolCallAccumulator>();
       for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) {
-          fullText += delta;
-          ws.send(JSON.stringify({ type: "chat.delta", id: msg.id, text: delta }));
+        const choice = chunk.choices[0];
+        if (!choice) continue;
+
+        const delta = choice.delta;
+        if (delta?.content) {
+          fullText += delta.content;
+          ws.send(JSON.stringify({ type: "chat.delta", id: msg.id, text: delta.content }));
+        }
+
+        if (delta?.tool_calls) {
+          accumulateToolCalls(toolCalls, delta.tool_calls as Array<{
+            index: number; id?: string; function?: { name?: string; arguments?: string };
+          }>);
         }
       }
+
+      if (toolCalls.size > 0) {
+        for (const [, tc] of toolCalls) {
+          let args: Record<string, unknown> = {};
+          try { args = JSON.parse(tc.arguments); } catch { args = { _raw: tc.arguments } }
+          ws.send(JSON.stringify({
+            type: "tool.call", id: msg.id,
+            tool_call_id: tc.id, tool: tc.name, arguments: args,
+          }));
+        }
+      }
+
       if (useHistory) state.history.add("assistant", fullText);
     } else {
       const completion = await openai.chat.completions.create(
@@ -99,14 +142,28 @@ export async function handleChatRequest(
           model: msg.model ?? "gpt-4.1",
           messages,
           temperature: msg.temperature ?? 0.7,
+          ...(msg.tools && msg.tools.length > 0 ? { tools: msg.tools } : {}),
         },
         { signal: state.abortController.signal }
       );
 
-      const text = completion.choices[0]?.message?.content ?? "";
+      const choice = completion.choices[0];
+      const text = choice?.message?.content ?? "";
       if (text) {
         ws.send(JSON.stringify({ type: "chat.delta", id: msg.id, text }));
       }
+
+      if (choice?.message?.tool_calls) {
+        for (const tc of choice.message.tool_calls) {
+          let args: Record<string, unknown> = {};
+          try { args = JSON.parse(tc.function.arguments); } catch { args = { _raw: tc.function.arguments } }
+          ws.send(JSON.stringify({
+            type: "tool.call", id: msg.id,
+            tool_call_id: tc.id, tool: tc.function.name, arguments: args,
+          }));
+        }
+      }
+
       if (useHistory) state.history.add("assistant", text);
     }
 
