@@ -95,12 +95,15 @@ public:
 	bbb_agent_hub() {
 		m_ws.setOnMessageCallback([this](const ix::WebSocketMessagePtr& msg) {
 			if (msg->type == ix::WebSocketMessageType::Message) {
+				m_last_received = msg->str;
 				m_queue.set();
 			} else if (msg->type == ix::WebSocketMessageType::Open) {
+				m_was_connected = true;
 				m_status_queue.set();
 			} else if (msg->type == ix::WebSocketMessageType::Close) {
 				m_status_queue.set();
 			} else if (msg->type == ix::WebSocketMessageType::Error) {
+				m_last_error = msg->errorInfo.reason;
 				m_error_queue.set();
 			}
 		});
@@ -115,6 +118,8 @@ private:
 	ix::WebSocket m_ws;
 	std::map<std::string, std::string> m_api_keys;
 	std::string m_last_received;
+	std::string m_last_error;
+	bool m_was_connected{false};
 
 	void do_connect() {
 		m_ws.setUrl(build_url());
@@ -146,7 +151,7 @@ private:
 	}};
 
 	c74::min::queue<> m_error_queue{this, MIN_FUNCTION {
-		status_out.send("error");
+		status_out.send("error", m_last_error);
 		return {};
 	}};
 
