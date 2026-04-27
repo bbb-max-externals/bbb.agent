@@ -15,6 +15,12 @@ if(APPLE AND NOT CMAKE_OSX_ARCHITECTURES)
 	set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE STRING "macOS architecture" FORCE)
 endif()
 
+# --- external dependencies (add as needed) ---
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/IXWebSocket")
+	set(USE_TLS OFF CACHE BOOL "" FORCE)
+	add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/deps/IXWebSocket)
+endif()
+
 # --- auto-discover external projects ---
 MACRO(SUBDIRLIST result curdir)
 	FILE(GLOB children RELATIVE ${curdir} ${curdir}/*)

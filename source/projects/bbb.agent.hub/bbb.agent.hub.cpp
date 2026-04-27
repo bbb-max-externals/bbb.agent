@@ -1,5 +1,7 @@
 #include "c74_min.h"
 #include <map>
+#include <string>
+#include <ixwebsocket/IXWebSocket.h>
 
 class bbb_agent_hub : public c74::min::object<bbb_agent_hub> {
 public:
@@ -7,7 +9,7 @@ public:
 	MIN_TAGS{"ai, network, connection"};
 	MIN_AUTHOR{"2bit"};
 
-	c74::min::inlet<> input{this, "(anything) commands: connect, disconnect, restart, status, apikey, config"};
+	c74::min::inlet<> input{this, "(anything) commands"};
 	c74::min::outlet<> status_out{this, "(symbol) status events"};
 	c74::min::outlet<> data_out{this, "(anything) response data"};
 
@@ -20,7 +22,7 @@ public:
 		c74::min::range{1, 65535}
 	};
 
-	c74::min::attribute<int> reconnect{this, "reconnect", 1,
+	c74::min::attribute<int> reconnect_attr{this, "reconnect", 1,
 		c74::min::description{"Auto-reconnect on disconnect"},
 		c74::min::range{0, 1}
 	};
@@ -32,36 +34,38 @@ public:
 
 	c74::min::message<> connect_msg{this, "connect", "Connect to helper service",
 		MIN_FUNCTION {
-			status_out.send("status", "connecting");
-			status_out.send("status", "connected");
+			do_connect();
 			return {};
 		}
 	};
 
 	c74::min::message<> disconnect_msg{this, "disconnect", "Disconnect from helper service",
 		MIN_FUNCTION {
-			status_out.send("status", "disconnected");
+			do_disconnect();
 			return {};
 		}
 	};
 
 	c74::min::message<> restart_msg{this, "restart", "Restart connection",
 		MIN_FUNCTION {
-			status_out.send("status", "disconnected");
-			status_out.send("status", "connecting");
-			status_out.send("status", "connected");
+			do_disconnect();
+			do_connect();
 			return {};
 		}
 	};
 
 	c74::min::message<> status_msg{this, "status", "Query connection status",
 		MIN_FUNCTION {
-			status_out.send("status", "disconnected");
+			auto state = m_ws.getReadyState();
+			auto label = (state == ix::ReadyState::Open) ? "connected"
+			           : (state == ix::ReadyState::Connecting) ? "connecting"
+			           : "disconnected";
+			status_out.send("status", label);
 			return {};
 		}
 	};
 
-	c74::min::message<> apikey_msg{this, "apikey", "Set API key for a provider. Usage: apikey <provider> <key>",
+	c74::min::message<> apikey_msg{this, "apikey", "Set API key. Usage: apikey <provider> <key>",
 		MIN_FUNCTION {
 			if (args.size() >= 2) {
 				auto provider = std::string(args[0]);
@@ -78,8 +82,73 @@ public:
 		}
 	};
 
+	c74::min::message<> send_msg{this, "send", "Send raw JSON string to helper",
+		MIN_FUNCTION {
+			if (args.size() >= 1) {
+				auto text = std::string(args[0]);
+				m_ws.send(text);
+			}
+			return {};
+		}
+	};
+
+	bbb_agent_hub() {
+		m_ws.setOnMessageCallback([this](const ix::WebSocketMessagePtr& msg) {
+			if (msg->type == ix::WebSocketMessageType::Message) {
+				m_queue.set();
+			} else if (msg->type == ix::WebSocketMessageType::Open) {
+				m_status_queue.set();
+			} else if (msg->type == ix::WebSocketMessageType::Close) {
+				m_status_queue.set();
+			} else if (msg->type == ix::WebSocketMessageType::Error) {
+				m_error_queue.set();
+			}
+		});
+		m_init_timer.delay(0);
+	}
+
+	~bbb_agent_hub() {
+		m_ws.close();
+	}
+
 private:
+	ix::WebSocket m_ws;
 	std::map<std::string, std::string> m_api_keys;
+	std::string m_last_received;
+
+	void do_connect() {
+		m_ws.setUrl(build_url());
+		m_ws.start();
+	}
+
+	void do_disconnect() {
+		m_ws.stop();
+	}
+
+	std::string build_url() {
+		c74::min::symbol h = host;
+		return std::string("ws://") + std::string(h.c_str()) + ":" + std::to_string(static_cast<int>(port));
+	}
+
+	c74::min::queue<> m_queue{this, MIN_FUNCTION {
+		status_out.send("status", "message");
+		data_out.send("data", m_last_received);
+		return {};
+	}};
+
+	c74::min::queue<> m_status_queue{this, MIN_FUNCTION {
+		auto state = m_ws.getReadyState();
+		auto label = (state == ix::ReadyState::Open) ? "connected"
+		           : (state == ix::ReadyState::Connecting) ? "connecting"
+		           : "disconnected";
+		status_out.send("status", label);
+		return {};
+	}};
+
+	c74::min::queue<> m_error_queue{this, MIN_FUNCTION {
+		status_out.send("error");
+		return {};
+	}};
 
 	c74::min::timer<c74::min::timer_options::defer_delivery> m_init_timer{this,
 		MIN_FUNCTION {
