@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
 import dotenv from "dotenv";
+import { handlePing, handleChatRequest, handleChatCancel, handleApiKeys } from "./handlers.js";
 
 dotenv.config();
 
@@ -22,17 +23,16 @@ function handleMessage(ws: WebSocket, raw: string) {
 
   switch (msg.type) {
     case "ping":
-      ws.send(JSON.stringify({ type: "pong", id: msg.id, timestamp: Date.now() }));
+      handlePing(ws, msg);
       break;
-    case "api.keys": {
-      const providers = Object.keys(msg).filter((k) => !["type", "id"].includes(k));
-      console.log(`received api keys for: ${providers.join(", ")}`);
-      ws.send(JSON.stringify({ type: "api.keys.ack", id: msg.id }));
-      break;
-    }
     case "chat.request":
-      ws.send(JSON.stringify({ type: "chat.delta", id: msg.id, text: "[echo] " }));
-      ws.send(JSON.stringify({ type: "chat.done", id: msg.id }));
+      handleChatRequest(ws, msg as unknown as Parameters<typeof handleChatRequest>[1]);
+      break;
+    case "chat.cancel":
+      handleChatCancel(ws, msg);
+      break;
+    case "api.keys":
+      handleApiKeys(ws, msg);
       break;
     default:
       ws.send(JSON.stringify({ type: "echo", id: msg.id, original: msg }));
