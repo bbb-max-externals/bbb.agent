@@ -3,6 +3,8 @@
 #include <string>
 #include <ixwebsocket/IXWebSocket.h>
 
+static c74::max::t_symbol* s_namespace = nullptr;
+
 class bbb_agent_hub : public c74::min::object<bbb_agent_hub> {
 public:
 	MIN_DESCRIPTION{"WebSocket connection manager for bbb.agent helper service"};
@@ -93,6 +95,7 @@ public:
 	};
 
 	bbb_agent_hub() {
+		if (!s_namespace) s_namespace = c74::max::gensym("bbb.agent");
 		m_ws.setOnMessageCallback([this](const ix::WebSocketMessagePtr& msg) {
 			if (msg->type == ix::WebSocketMessageType::Message) {
 				m_last_received = msg->str;
@@ -115,6 +118,8 @@ public:
 	}
 
 	~bbb_agent_hub() {
+		auto* registered = c74::max::object_findregistered(s_namespace, c74::max::gensym("hub"));
+		if (registered) c74::max::object_unregister(registered);
 		m_ws.close();
 	}
 
@@ -162,6 +167,7 @@ private:
 
 	c74::min::timer<c74::min::timer_options::defer_delivery> m_init_timer{this,
 		MIN_FUNCTION {
+			c74::max::object_register(s_namespace, c74::max::gensym("hub"), maxobj());
 			return {};
 		}
 	};
