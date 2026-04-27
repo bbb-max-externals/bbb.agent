@@ -101,6 +101,10 @@ public:
 				m_was_connected = true;
 				m_status_queue.set();
 			} else if (msg->type == ix::WebSocketMessageType::Close) {
+				if (m_was_connected && reconnect_attr) {
+					m_reconnect_timer.delay(reconnect_interval);
+				}
+				m_was_connected = false;
 				m_status_queue.set();
 			} else if (msg->type == ix::WebSocketMessageType::Error) {
 				m_last_error = msg->errorInfo.reason;
@@ -127,6 +131,7 @@ private:
 	}
 
 	void do_disconnect() {
+		m_was_connected = false;
 		m_ws.stop();
 	}
 
@@ -157,6 +162,17 @@ private:
 
 	c74::min::timer<c74::min::timer_options::defer_delivery> m_init_timer{this,
 		MIN_FUNCTION {
+			return {};
+		}
+	};
+
+	c74::min::timer<c74::min::timer_options::defer_delivery> m_reconnect_timer{this,
+		MIN_FUNCTION {
+			if (reconnect_attr && m_ws.getReadyState() != ix::ReadyState::Open) {
+				status_out.send("status", "reconnecting");
+				m_ws.setUrl(build_url());
+				m_ws.start();
+			}
 			return {};
 		}
 	};
