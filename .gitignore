@@ -1,0 +1,5 @@
+build/
+externals/
+helper/node_modules/
+helper/dist/
+*.DS_Store

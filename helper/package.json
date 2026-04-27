@@ -1,0 +1,21 @@
+{
+  "name": "bbb-agent-helper",
+  "version": "0.1.0",
+  "description": "Helper service for bbb.agent Max/MSP AI agent externals",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0",
+    "@types/ws": "^8.5.0",
+    "@types/node": "^22.0.0"
+  }
+}

@@ -1,0 +1,24 @@
+{
+    "title": "bbb.agent",
+    "description": "AI agent infrastructure for Max/MSP live performance",
+    "author": "2bit",
+    "website": "",
+    "extends": "",
+    "extensible": 0,
+    "homepatcher": "",
+    "max_version_min": "8.0",
+    "os": {
+        "macintosh": {
+            "externals": [
+                "externals/"
+            ],
+            "help": [
+                "help/"
+            ]
+        }
+    },
+    "filelist": {
+        "externals/bbb.agent.hub.mxo": {},
+        "externals/bbb.agent.ping.mxo": {}
+    }
+}
