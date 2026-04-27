@@ -18,6 +18,7 @@ endif()
 # --- external dependencies (add as needed) ---
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/deps/IXWebSocket")
 	set(USE_TLS OFF CACHE BOOL "" FORCE)
+	set(USE_ZLIB OFF CACHE BOOL "" FORCE)
 	add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/deps/IXWebSocket)
 endif()
 
