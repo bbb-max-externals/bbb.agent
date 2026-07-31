@@ -2,7 +2,7 @@
 
 ## Project Status
 
-Milestone 0 in progress. `bbb.agent.hub` and `bbb.agent.ping` externals build on macOS. Helper service echo server running. WebSocket connection logic not yet implemented. `PLAN.md` is the authoritative design document.
+Milestone 0 in progress. All six externals build on macOS and the helper service is implemented. `bbb.agent.hub` uses the reusable, thread-safe WebSocket transport in `source/bbb/`. `PLAN.md` is the authoritative product design document, but verify implementation claims against the current source.
 
 ## What This Is
 
@@ -21,6 +21,8 @@ All externals share a single WebSocket connection through `bbb.agent.hub`. Helpe
 ## Project Structure
 
 ```
+source/bbb/
+  └── bbb_agent_websocket_client.hpp  # reusable Max-independent transport
 source/projects/<bbb.agent.xxx>/
   ├── <bbb.agent.xxx>.cpp
   ├── <bbb.agent.xxx>.maxhelp

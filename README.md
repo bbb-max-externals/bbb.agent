@@ -84,6 +84,17 @@ Basic usage:
 [bbb.agent.state] --set/event--> [json] --prepend context--> [bbb.agent.chat]
 ```
 
+## Reusable WebSocket transport
+
+`source/bbb/bbb_agent_websocket_client.hpp` is a Max-independent C++17 transport layer.
+It owns IXWebSocket, queues every worker-thread event under a mutex, and notifies the
+consumer to drain those events on its own thread. Max externals must connect the notifier
+to `c74::min::queue<>`; they must never call outlets directly from the WebSocket callback.
+
+Consumers may include this repository as a submodule, add `source/bbb` to their include
+path, and link IXWebSocket. The shared layer does not register Max objects or impose a
+patcher-level singleton.
+
 ## External Details
 
 ### bbb.agent.hub
@@ -142,6 +153,7 @@ Collects key-value state and timestamped events into a JSON blob for LLM context
 bbb.agent/
   CMakeLists.txt
   cmake/bbb_external.cmake          # bbb_add_external() macro
+  source/bbb/                        # reusable, Max-independent C++ transport
   source/projects/
     bbb.agent.hub/                   # WebSocket client external
     bbb.agent.chat/                  # LLM chat external
@@ -176,7 +188,7 @@ The helper is a Node.js/TypeScript WebSocket server that:
 | Library | License | Used by |
 |---|---|---|
 | [min-api](https://github.com/Cycling74/min-api) | MIT — Copyright 2018, The Min-API Authors | All externals |
-| [IXWebSocket](https://github.com/machinezone/IXWebSocket) | BSD-3-Clause — Copyright 2018 Machine Zone, Inc. | `bbb.agent.hub` |
+| [IXWebSocket](https://github.com/machinezone/IXWebSocket) | BSD-3-Clause — Copyright 2018 Machine Zone, Inc. | shared WebSocket transport and its consumers |
 | [openai (npm)](https://github.com/openai/openai-node) | Apache-2.0 — Copyright 2025 OpenAI | helper |
 | [ws (npm)](https://github.com/websockets/ws) | MIT — Copyright Einar Otto Stangvik | helper |
 | [dotenv (npm)](https://github.com/motdotla/dotenv) | BSD-2-Clause — Copyright Scott Motte | helper |

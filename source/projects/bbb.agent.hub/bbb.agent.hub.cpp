@@ -1,9 +1,11 @@
 #include "c74_min.h"
+#include "bbb_agent_websocket_client.hpp"
+
+#include <cstdint>
 #include <map>
 #include <string>
-#include <ixwebsocket/IXWebSocket.h>
 
-static c74::max::t_symbol* s_namespace = nullptr;
+static c74::max::t_symbol *s_namespace = nullptr;
 
 class bbb_agent_hub : public c74::min::object<bbb_agent_hub> {
 public:
@@ -58,21 +60,17 @@ public:
 
 	c74::min::message<> status_msg{this, "status", "Query connection status",
 		MIN_FUNCTION {
-			auto state = m_ws.getReadyState();
-			auto label = (state == ix::ReadyState::Open) ? "connected"
-			           : (state == ix::ReadyState::Connecting) ? "connecting"
-			           : "disconnected";
-			status_out.send("status", label);
+			status_out.send("status", status_label());
 			return {};
 		}
 	};
 
 	c74::min::message<> apikey_msg{this, "apikey", "Set API key. Usage: apikey <provider> <key>",
 		MIN_FUNCTION {
-			if (args.size() >= 2) {
-				auto provider = std::string(args[0]);
-				auto key = std::string(args[1]);
-				m_api_keys[provider] = key;
+			if(2 <= args.size()) {
+				const auto provider = std::string(args[0]);
+				const auto key = std::string(args[1]);
+				api_keys_[provider] = key;
 			}
 			return {};
 		}
@@ -86,102 +84,108 @@ public:
 
 	c74::min::message<> send_msg{this, "send", "Send raw JSON string to helper",
 		MIN_FUNCTION {
-			if (args.size() >= 1) {
-				auto text = std::string(args[0]);
-				m_ws.send(text);
+			if(!args.empty() && !websocket_client_.send(std::string(args[0]))) {
+				report_error("WebSocket is not connected");
 			}
 			return {};
 		}
 	};
 
 	bbb_agent_hub() {
-		if (!s_namespace) s_namespace = c74::max::gensym("bbb.agent");
-		m_ws.setOnMessageCallback([this](const ix::WebSocketMessagePtr& msg) {
-			if (msg->type == ix::WebSocketMessageType::Message) {
-				m_last_received = msg->str;
-				m_queue.set();
-			} else if (msg->type == ix::WebSocketMessageType::Open) {
-				m_was_connected = true;
-				m_status_queue.set();
-			} else if (msg->type == ix::WebSocketMessageType::Close) {
-				if (m_was_connected && reconnect_attr) {
-					m_reconnect_timer.delay(reconnect_interval);
-				}
-				m_was_connected = false;
-				m_status_queue.set();
-			} else if (msg->type == ix::WebSocketMessageType::Error) {
-				m_last_error = msg->errorInfo.reason;
-				m_error_queue.set();
-			}
+		if(!s_namespace) s_namespace = c74::max::gensym("bbb.agent");
+		websocket_client_.set_notifier([this]() {
+			event_queue_.set();
 		});
-		m_init_timer.delay(0);
+		init_timer_.delay(0);
 	}
 
 	~bbb_agent_hub() {
-		auto* registered = c74::max::object_findregistered(s_namespace, c74::max::gensym("hub"));
-		if (registered) c74::max::object_unregister(registered);
-		m_ws.close();
+		websocket_client_.clear_notifier();
+		websocket_client_.disconnect();
+		auto *registered = c74::max::object_findregistered(
+			s_namespace,
+			c74::max::gensym("hub")
+		);
+		if(registered == maxobj()) c74::max::object_unregister(registered);
 	}
 
 private:
-	ix::WebSocket m_ws;
-	std::map<std::string, std::string> m_api_keys;
-	std::string m_last_received;
-	std::string m_last_error;
-	bool m_was_connected{false};
+	std::map<std::string, std::string> api_keys_;
+
+	c74::min::queue<> event_queue_{this, MIN_FUNCTION {
+		deliver_events();
+		return {};
+	}};
+
+	bbb::agent::websocket_client websocket_client_;
+
+	c74::min::timer<c74::min::timer_options::defer_delivery> init_timer_{this,
+		MIN_FUNCTION {
+			c74::max::object_register(
+				s_namespace,
+				c74::max::gensym("hub"),
+				maxobj()
+			);
+			return {};
+		}
+	};
 
 	void do_connect() {
-		m_ws.setUrl(build_url());
-		m_ws.start();
+		status_out.send("status", "connecting");
+		websocket_client_.connect(
+			build_url(),
+			reconnect_attr != 0,
+			static_cast<std::uint32_t>(static_cast<int>(reconnect_interval))
+		);
 	}
 
 	void do_disconnect() {
-		m_was_connected = false;
-		m_ws.stop();
+		websocket_client_.disconnect();
 	}
 
-	std::string build_url() {
-		c74::min::symbol h = host;
-		return std::string("ws://") + std::string(h.c_str()) + ":" + std::to_string(static_cast<int>(port));
+	auto build_url() -> std::string {
+		const c74::min::symbol host_symbol = host;
+		return std::string{"ws://"} + host_symbol.c_str() + ":" +
+			std::to_string(static_cast<int>(port));
 	}
 
-	c74::min::queue<> m_queue{this, MIN_FUNCTION {
-		status_out.send("status", "message");
-		data_out.send("data", m_last_received);
-		return {};
-	}};
-
-	c74::min::queue<> m_status_queue{this, MIN_FUNCTION {
-		auto state = m_ws.getReadyState();
-		auto label = (state == ix::ReadyState::Open) ? "connected"
-		           : (state == ix::ReadyState::Connecting) ? "connecting"
-		           : "disconnected";
-		status_out.send("status", label);
-		return {};
-	}};
-
-	c74::min::queue<> m_error_queue{this, MIN_FUNCTION {
-		status_out.send("error", m_last_error);
-		return {};
-	}};
-
-	c74::min::timer<c74::min::timer_options::defer_delivery> m_init_timer{this,
-		MIN_FUNCTION {
-			c74::max::object_register(s_namespace, c74::max::gensym("hub"), maxobj());
-			return {};
+	auto status_label() const -> const char * {
+		switch(websocket_client_.state()) {
+			case bbb::agent::websocket_state::connecting:
+				return "connecting";
+			case bbb::agent::websocket_state::open:
+				return "connected";
+			case bbb::agent::websocket_state::closing:
+			case bbb::agent::websocket_state::closed:
+				return "disconnected";
 		}
-	};
+		return "disconnected";
+	}
 
-	c74::min::timer<c74::min::timer_options::defer_delivery> m_reconnect_timer{this,
-		MIN_FUNCTION {
-			if (reconnect_attr && m_ws.getReadyState() != ix::ReadyState::Open) {
-				status_out.send("status", "reconnecting");
-				m_ws.setUrl(build_url());
-				m_ws.start();
+	void deliver_events() {
+		for(auto &event : websocket_client_.drain_events()) {
+			switch(event.type) {
+				case bbb::agent::websocket_event_type::open:
+					status_out.send("status", "connected");
+					break;
+				case bbb::agent::websocket_event_type::close:
+					status_out.send("status", "disconnected");
+					break;
+				case bbb::agent::websocket_event_type::message:
+					status_out.send("status", "message");
+					data_out.send("data", event.text);
+					break;
+				case bbb::agent::websocket_event_type::error:
+					report_error(event.text);
+					break;
 			}
-			return {};
 		}
-	};
+	}
+
+	void report_error(const std::string &message) {
+		cerr << message << c74::min::endl;
+		status_out.send("error", message);
+	}
 };
 
 MIN_EXTERNAL(bbb_agent_hub);
