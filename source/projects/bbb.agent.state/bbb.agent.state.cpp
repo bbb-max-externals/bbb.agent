@@ -1,4 +1,6 @@
 #include "c74_min.h"
+#include "json_string.hpp"
+#include "json_number.hpp"
 #include <chrono>
 #include <deque>
 #include <map>
@@ -87,7 +89,7 @@ public:
 			std::string j = "{";
 
 			for (auto& [key, val] : m_state) {
-				j += "\"" + escape_json(key) + "\":";
+				j += bbb::agent::json_string(key) + ":";
 				j += value_to_json(val);
 				j += ",";
 			}
@@ -114,33 +116,19 @@ private:
 	std::deque<c74::min::atoms> m_events;
 	std::chrono::steady_clock::time_point m_epoch{std::chrono::steady_clock::now()};
 
-	std::string escape_json(const std::string& s) {
-		std::string out;
-		for (char c : s) {
-			switch (c) {
-				case '"':  out += "\\\""; break;
-				case '\\': out += "\\\\"; break;
-				case '\n': out += "\\n"; break;
-				default:   out += c; break;
-			}
-		}
-		return out;
-	}
 
 	std::string value_to_json(const c74::min::atom& val) {
 		auto a_type = static_cast<long>(val.type());
-		if (a_type == c74::max::A_LONG) {
-			return std::to_string(static_cast<int>(val));
-		} else if (a_type == c74::max::A_FLOAT) {
-			return std::to_string(static_cast<double>(val));
+		if (a_type == c74::max::A_LONG || a_type == c74::max::A_FLOAT) {
+			return bbb::agent::json_number(val);
 		}
-		return "\"" + escape_json(std::string(val)) + "\"";
+		return bbb::agent::json_string(std::string(val));
 	}
 
 	std::string event_to_json(const c74::min::atoms& ev) {
 		std::string j = "{";
-		if (ev.size() >= 2) j += "\"time\":" + std::to_string(static_cast<double>(ev[1]));
-		if (ev.size() >= 3) j += ",\"type\":\"" + escape_json(std::string(ev[2])) + "\"";
+		if (ev.size() >= 2) j += "\"time\":" + bbb::agent::json_number(ev[1]);
+		if (ev.size() >= 3) j += ",\"type\":" + bbb::agent::json_string(std::string(ev[2]));
 		if (ev.size() >= 4) {
 			j += ",\"data\":";
 			if (ev.size() == 4) {

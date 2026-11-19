@@ -1,4 +1,5 @@
 #include "c74_min.h"
+#include "json_string.hpp"
 #include <chrono>
 #include <string>
 
@@ -181,36 +182,21 @@ private:
 		return result;
 	}
 
-	std::string escape_json(const std::string& s) {
-		std::string out;
-		out.reserve(s.size());
-		for (char c : s) {
-			switch (c) {
-				case '"':  out += "\\\""; break;
-				case '\\': out += "\\\\"; break;
-				case '\n': out += "\\n"; break;
-				case '\r': out += "\\r"; break;
-				case '\t': out += "\\t"; break;
-				default:   out += c; break;
-			}
-		}
-		return out;
-	}
 
 	std::string build_chat_request() {
 		std::string json = "{";
 		json += "\"type\":\"chat.request\"";
 		json += ",\"id\":\"" + std::to_string(m_request_id) + "\"";
 		c74::min::symbol m = model_attr;
-		json += ",\"model\":\"" + std::string(m.c_str()) + "\"";
+		json += ",\"model\":" + bbb::agent::json_string(m.c_str());
 		json += ",\"temperature\":" + std::to_string(static_cast<double>(temperature_attr));
 		json += ",\"stream\":" + std::to_string(static_cast<int>(stream_attr));
 		json += ",\"history\":" + std::to_string(static_cast<int>(history_attr));
 		json += ",\"max_history\":" + std::to_string(static_cast<int>(max_history_attr));
 		if (!m_system.empty()) {
-			json += ",\"system\":\"" + escape_json(m_system) + "\"";
+			json += ",\"system\":" + bbb::agent::json_string(m_system);
 		}
-		json += ",\"prompt\":\"" + escape_json(m_prompt) + "\"";
+		json += ",\"prompt\":" + bbb::agent::json_string(m_prompt);
 		json += "}";
 		return json;
 	}
