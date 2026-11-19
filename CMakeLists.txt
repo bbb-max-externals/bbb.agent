@@ -46,3 +46,13 @@ foreach(project_dir ${PROJECT_DIRS})
 endforeach()
 
 set(CMAKE_SUPPRESS_REGENERATION true)
+
+option(BBB_AGENT_BUILD_TESTS "Build JSON string round-trip test" OFF)
+if(BBB_AGENT_BUILD_TESTS)
+	enable_testing()
+	find_package(Python3 REQUIRED COMPONENTS Interpreter)
+	add_executable(bbb_agent_json_string_probe tests/json_string_probe.cpp)
+	target_include_directories(bbb_agent_json_string_probe PRIVATE source/bbb)
+	add_test(NAME bbb_agent_json_strings COMMAND ${Python3_EXECUTABLE}
+		${CMAKE_CURRENT_SOURCE_DIR}/tests/check_json_string.py $<TARGET_FILE:bbb_agent_json_string_probe>)
+endif()
